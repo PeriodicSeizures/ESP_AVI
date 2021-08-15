@@ -58,6 +58,9 @@ bool ready = false;
 #include "esp_vfs_fat.h"
 #include <SD_MMC.h>
 
+// ble
+#include <BLEDevice.h>
+
 long current_millis;
 long last_capture_millis = 0;
 
@@ -147,8 +150,14 @@ uint8_t uxga_h[2] = {0xB0, 0x04}; // 1200
 #define AVIOFFSET 240 // AVI main header length
 
 const int avi_header[AVIOFFSET] PROGMEM = {
-  0x52, 0x49, 0x46, 0x46, 0xD8, 0x01, 0x0E, 0x00, 0x41, 0x56, 0x49, 0x20, 0x4C, 0x49, 0x53, 0x54,
-  0xD0, 0x00, 0x00, 0x00, 0x68, 0x64, 0x72, 0x6C, 0x61, 0x76, 0x69, 0x68, 0x38, 0x00, 0x00, 0x00,
+  0x52, 0x49, 0x46, 0x46, // 'RIFF'
+  0xD8, 0x01, 0x0E, 0x00, // fileSize (3,623,947,776 bytes for following section)
+  0x41, 0x56, 0x49, 0x20, // fileType 'AVI '
+  
+  0x4C, 0x49, 0x53, 0x54, // 'LIST'
+  0xD0, 0x00, 0x00, 0x00, // listSize (3,489,660,928 bytes for following section)
+  0x68, 0x64, 0x72, 0x6C, // listType 'hdrl'
+  0x61, 0x76, 0x69, 0x68, 0x38, 0x00, 0x00, 0x00,
   0xA0, 0x86, 0x01, 0x00, 0x80, 0x66, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x10, 0x00, 0x00, 0x00,
   0x64, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
   0x80, 0x02, 0x00, 0x00, 0xe0, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
@@ -363,53 +372,9 @@ void setup() {
   pinMode(WHITE_LED, OUTPUT);                 // using 1 bit mode, shut off the Blinding Disk-Active Light
   digitalWrite(WHITE_LED, LOW);
 
-/*
-  Serial.print(F("Passive touch will be calibrated in "));
-  delay(1000);
-  Serial.print("3");
-  delay(1000);
-  Serial.print("2");
-  delay(1000);
-  Serial.print("1");
-  delay(1000);
-
-  //int sum = 0;
-  int untouched = 0;
-  for (int _=0; _ < 10; _++) {
-    untouched += touchRead(T5);
-    //Serial.println(untouched);
-    delay(200);
-  }
-  untouched = untouched / 10;
-
-  Serial.println(untouched);
-
-  delay(2000);
-
-  Serial.println(F("Active touch will now be calibrated"));
-  delay(1000);
-  Serial.println(F("Touch the pin now"));
-  delay(2000);
-
-  Serial.println(F("Calibrating in "));
-  delay(1000);
-  Serial.print("3");
-  delay(1000);
-  Serial.print("2");
-  delay(1000);
-  Serial.print("1");
-  delay(1000);
-
-  for (int _=0; _ < 10; _++) {
-    touch_threshold += touchRead(T5);
-    delay(200);
-  }
-  touch_threshold = touch_threshold / 10;
-*/
- 
-  // Set ready after everything has been initialized
-  // So threads can start working
+  // Let threads know to begin
   ready = true;
+
 }
 
 
@@ -491,7 +456,7 @@ void init_sdcard()
   Serial.print(F("SD_MMC.totalBytes(): "));
   Serial.println(SD_MMC.totalBytes());  
 
-  Serial.printf("Using %lluMB of %lluMB\n", SD_MMC.usedBytes() / (1024 * 1024), SD_MMC.cardSize() / (1024 * 1024));    // available bytes
+  Serial.printf("Using %lluMB of %lluMB\n", SD_MMC.usedBytes() / (1024 * 1024), SD_MMC.totalBytes() / (1024 * 1024));    // available bytes
 }
 
 //~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -557,9 +522,9 @@ void init_camera() {
   config.xclk_freq_hz = 20000000;
   config.pixel_format = PIXFORMAT_JPEG;
 
-  config.frame_size = FRAMESIZE_UXGA;
+  config.frame_size = FRAMESIZE_VGA; //FRAMESIZE_UXGA;
 
-  config.jpeg_quality = 8;
+  config.jpeg_quality = 10;
   config.fb_count = fb_max + 1;
 
   // camera init
